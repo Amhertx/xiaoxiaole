@@ -90,13 +90,16 @@ export function findAllMatches(board: GameElement[][]): Match[] {
   const matches: Match[] = []
   const visited = new Set<string>()
   
+  // 先收集所有水平和垂直匹配
+  const horizontalMatches: Match[] = []
+  const verticalMatches: Match[] = []
+  
   // 检测水平匹配
   for (let row = 0; row < BOARD_SIZE; row++) {
     for (let col = 0; col < BOARD_SIZE - 2; col++) {
       const match = findHorizontalMatch(board, row, col)
-      if (match && !isVisited(visited, match.positions)) {
-        matches.push(match)
-        markVisited(visited, match.positions)
+      if (match) {
+        horizontalMatches.push(match)
       }
     }
   }
@@ -105,7 +108,66 @@ export function findAllMatches(board: GameElement[][]): Match[] {
   for (let row = 0; row < BOARD_SIZE - 2; row++) {
     for (let col = 0; col < BOARD_SIZE; col++) {
       const match = findVerticalMatch(board, row, col)
-      if (match && !isVisited(visited, match.positions)) {
+      if (match) {
+        verticalMatches.push(match)
+      }
+    }
+  }
+  
+  // 检测L形匹配：找交叉点
+  const usedHorizontal = new Set<number>()
+  const usedVertical = new Set<number>()
+  
+  for (let hi = 0; hi < horizontalMatches.length; hi++) {
+    const hMatch = horizontalMatches[hi]
+    for (let vi = 0; vi < verticalMatches.length; vi++) {
+      const vMatch = verticalMatches[vi]
+      
+      // 必须是同类型
+      if (hMatch.type !== vMatch.type) continue
+      
+      // 找交叉点
+      const intersection = findIntersection(hMatch.positions, vMatch.positions)
+      if (!intersection) continue
+      
+      // 检查每边是否都有至少3个（交叉点只算一次）
+      const hLength = hMatch.positions.length
+      const vLength = vMatch.positions.length
+      
+      if (hLength >= 3 && vLength >= 3) {
+        // 合并为L形匹配
+        const mergedPositions = mergeLShapePositions(hMatch.positions, vMatch.positions)
+        
+        if (!isVisited(visited, mergedPositions)) {
+          matches.push({
+            positions: mergedPositions,
+            type: hMatch.type,
+            intersection: intersection
+          })
+          markVisited(visited, mergedPositions)
+          usedHorizontal.add(hi)
+          usedVertical.add(vi)
+        }
+      }
+    }
+  }
+  
+  // 添加未参与L形的水平匹配
+  for (let i = 0; i < horizontalMatches.length; i++) {
+    if (!usedHorizontal.has(i)) {
+      const match = horizontalMatches[i]
+      if (!isVisited(visited, match.positions)) {
+        matches.push(match)
+        markVisited(visited, match.positions)
+      }
+    }
+  }
+  
+  // 添加未参与L形的垂直匹配
+  for (let i = 0; i < verticalMatches.length; i++) {
+    if (!usedVertical.has(i)) {
+      const match = verticalMatches[i]
+      if (!isVisited(visited, match.positions)) {
         matches.push(match)
         markVisited(visited, match.positions)
       }
@@ -113,6 +175,38 @@ export function findAllMatches(board: GameElement[][]): Match[] {
   }
   
   return matches
+}
+
+/**
+ * 找到两个位置数组的交叉点
+ */
+function findIntersection(positions1: Position[], positions2: Position[]): Position | null {
+  for (const p1 of positions1) {
+    for (const p2 of positions2) {
+      if (p1.row === p2.row && p1.col === p2.col) {
+        return p1
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * 合并L形位置（去重）
+ */
+function mergeLShapePositions(horizontal: Position[], vertical: Position[]): Position[] {
+  const result: Position[] = [...horizontal]
+  const seen = new Set(horizontal.map(p => `${p.row},${p.col}`))
+  
+  for (const p of vertical) {
+    const key = `${p.row},${p.col}`
+    if (!seen.has(key)) {
+      result.push(p)
+      seen.add(key)
+    }
+  }
+  
+  return result
 }
 
 /**
@@ -211,8 +305,12 @@ export function swapElements(
 
 /**
  * 确定特殊道具类型
+ * @param matchLength 匹配长度
+ * @param isLShape 是否是L形匹配
  */
-export function determineSpecialType(matchLength: number): SpecialType {
+export function determineSpecialType(matchLength: number, isLShape: boolean = false): SpecialType {
+  // L形匹配生成炸弹
+  if (isLShape) return 'bomb'
   if (matchLength >= 5) return 'superBomb'
   if (matchLength === 4) return 'bomb'
   return null
@@ -223,18 +321,44 @@ export function determineSpecialType(matchLength: number): SpecialType {
  */
 export function removeMatches(
   board: GameElement[][],
-  matches: Match[]
+  matches: Match[],
+  swapPositions?: { from: Position; to: Position }
 ): { newBoard: GameElement[][]; specials: Array<{ position: Position; special: SpecialType }> } {
   const newBoard = board.map(row => [...row])
   const specials: Array<{ position: Position; special: SpecialType }> = []
   
   for (const match of matches) {
-    const specialType = determineSpecialType(match.positions.length)
+    const isLShape = !!match.intersection
+    const specialType = determineSpecialType(match.positions.length, isLShape)
     
-    // 如果需要生成特殊道具，在匹配的中间位置生成
+    // 如果需要生成特殊道具
     if (specialType) {
-      const middleIndex = Math.floor(match.positions.length / 2)
-      const specialPos = match.positions[middleIndex]
+      let specialPos: Position
+      
+      // L形匹配：使用交叉点位置
+      if (isLShape && match.intersection) {
+        specialPos = match.intersection
+      } else if (swapPositions) {
+        // 普通匹配：优先使用交换位置
+        const { from, to } = swapPositions
+        const fromInMatch = match.positions.some(p => p.row === from.row && p.col === from.col)
+        const toInMatch = match.positions.some(p => p.row === to.row && p.col === to.col)
+        
+        if (fromInMatch) {
+          specialPos = from
+        } else if (toInMatch) {
+          specialPos = to
+        } else {
+          // 交换位置都不在匹配中，使用中间位置
+          const middleIndex = Math.floor(match.positions.length / 2)
+          specialPos = match.positions[middleIndex]
+        }
+      } else {
+        // 没有交换位置，使用中间位置
+        const middleIndex = Math.floor(match.positions.length / 2)
+        specialPos = match.positions[middleIndex]
+      }
+      
       specials.push({ position: specialPos, special: specialType })
     }
     

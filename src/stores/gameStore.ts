@@ -143,8 +143,8 @@ export const useGameStore = defineStore('game', {
         return false
       }
 
-      // 有匹配，开始消除流程
-      await this.processMatches()
+      // 有匹配，开始消除流程，传递交换位置
+      await this.processMatches({ from, to })
       
       // 检查游戏是否结束
       this.checkGameOver()
@@ -156,9 +156,10 @@ export const useGameStore = defineStore('game', {
     /**
      * 处理匹配消除流程
      */
-    async processMatches() {
+    async processMatches(swapPositions?: { from: Position; to: Position }) {
       let matches = findAllMatches(this.board)
       let combo = 0
+      let isFirstMatch = true
       
       while (matches.length > 0) {
         combo++
@@ -199,9 +200,10 @@ export const useGameStore = defineStore('game', {
         // 等待消除动画 (300ms)
         await this.delay(300)
 
-        // 移除匹配的元素
-        const { newBoard } = removeMatches(this.board, matches)
+        // 移除匹配的元素（第一次匹配时传递交换位置）
+        const { newBoard } = removeMatches(this.board, matches, isFirstMatch ? swapPositions : undefined)
         this.board = newBoard
+        isFirstMatch = false
 
         // 清除匹配动画状态
         matchPositions.forEach(pos => {

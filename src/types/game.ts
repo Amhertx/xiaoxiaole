@@ -32,6 +32,7 @@ export interface GameElement {
 export interface Match {
   positions: Position[]
   type: ElementType
+  intersection?: Position // L形匹配的交叉点位置
 }
 
 /**
