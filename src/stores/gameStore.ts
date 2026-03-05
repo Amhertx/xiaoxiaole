@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { GameState, GameElement, Position, Match } from '../types/game'
+import type { GameState, GameElement, Position, SpecialType } from '../types/game'
 import { STORAGE_KEYS } from '../types/game'
 import {
   initializeBoard,
@@ -12,7 +12,13 @@ import {
   calculateScore,
   hasValidMoves,
   triggerSpecialEffect,
+  findValidMoves,
 } from '../utils/gameLogic'
+
+interface SpecialItemInfo {
+  position: Position
+  specialType: SpecialType
+}
 
 export const useGameStore = defineStore('game', {
   state: (): GameState => ({
@@ -25,6 +31,11 @@ export const useGameStore = defineStore('game', {
     selectedElement: null,
     isAnimating: false,
     animatingElements: {} as Record<string, 'matching' | 'falling' | 'swapping' | 'appearing' | null>,
+    swapAnimation: null as { from: Position; to: Position } | null,
+    fallingAnimations: [] as Array<{ from: Position; to: Position }>,
+    lastInteractionTime: Date.now(),
+    hintPositions: [],
+    isShowingHint: false,
   }),
 
   getters: {
@@ -79,6 +90,9 @@ export const useGameStore = defineStore('game', {
       this.selectedElement = null
       this.isAnimating = false
       this.animatingElements = {}
+      this.lastInteractionTime = Date.now()
+      this.hintPositions = []
+      this.isShowingHint = false
     },
 
     /**
@@ -89,32 +103,42 @@ export const useGameStore = defineStore('game', {
       if (!areAdjacent(from, to)) return false
 
       this.isAnimating = true
+      this.selectedElement = null
 
-      // 标记交换动画
+      // 重置交互时间和清除提示
+      this.lastInteractionTime = Date.now()
+      this.hintPositions = []
+      this.isShowingHint = false
+
+      // 设置交换动画数据
+      this.swapAnimation = { from, to }
       this.setAnimationState(from, 'swapping')
       this.setAnimationState(to, 'swapping')
 
-      // 执行交换
-      this.board = swapElements(this.board, from, to)
+      // 等待交换动画完成 (300ms)
+      await this.delay(300)
 
-      // 等待交换动画完成 (250ms)
-      await this.delay(250)
+      // 执行实际交换
+      this.board = swapElements(this.board, from, to)
 
       // 清除交换动画状态
       this.setAnimationState(from, null)
       this.setAnimationState(to, null)
+      this.swapAnimation = null
 
       // 检查是否有匹配
       const matches = findAllMatches(this.board)
 
       if (matches.length === 0) {
         // 没有匹配，交换回来
+        this.swapAnimation = { from: to, to: from }
         this.setAnimationState(from, 'swapping')
         this.setAnimationState(to, 'swapping')
+        await this.delay(300)
         this.board = swapElements(this.board, from, to)
-        await this.delay(250)
         this.setAnimationState(from, null)
         this.setAnimationState(to, null)
+        this.swapAnimation = null
         this.isAnimating = false
         return false
       }
@@ -146,6 +170,18 @@ export const useGameStore = defineStore('game', {
           matchPositions.push(...match.positions)
         })
 
+        // 收集被消除的特殊道具及其类型信息
+        const specialItems: SpecialItemInfo[] = []
+        matchPositions.forEach(pos => {
+          const element = this.board[pos.row]?.[pos.col]
+          if (element?.special) {
+            specialItems.push({
+              position: pos,
+              specialType: element.special
+            })
+          }
+        })
+
         // 标记匹配元素，开始消除动画
         this.setBatchAnimationStates(matchPositions, 'matching')
 
@@ -172,19 +208,21 @@ export const useGameStore = defineStore('game', {
           this.setAnimationState(pos, null)
         })
 
-        // 元素下落动画
-        this.board = dropElements(this.board)
-        
-        // 标记下落动画元素（检测哪些位置有元素变化）
-        const fallPositions: Position[] = []
-        for (let row = 0; row < this.board.length; row++) {
-          for (let col = 0; col < this.board[row].length; col++) {
-            if (this.board[row][col]) {
-              fallPositions.push({ row, col })
-            }
-          }
+        // 触发被消除的特殊道具效果
+        if (specialItems.length > 0) {
+          await this.triggerSpecialsInMatch(specialItems)
         }
+
+        // 元素下落动画
+        const dropResult = dropElements(this.board)
+        
+        // 先设置动画状态，再更新board，避免闪烁
+        const fallPositions: Position[] = dropResult.movedElements.map(m => m.to)
+        this.fallingAnimations = dropResult.movedElements
         this.setBatchAnimationStates(fallPositions, 'falling')
+        
+        // 然后更新board
+        this.board = dropResult.newBoard
         
         // 等待下落动画 (400ms)
         await this.delay(400)
@@ -195,30 +233,17 @@ export const useGameStore = defineStore('game', {
         })
 
         // 填充新元素
-        this.board = fillBoard(this.board)
+        const fillResult = fillBoard(this.board)
+        this.board = fillResult.newBoard
         
-        // 标记新元素动画
-        const newPositions: Position[] = []
-        for (let row = 0; row < this.board.length; row++) {
-          for (let col = 0; col < this.board[row].length; col++) {
-            if (this.board[row][col]) {
-              const key = `${row}-${col}`
-              // 检查是否是新元素（不在之前的位置集合中）
-              const isNew = !matchPositions.some(p => `${p.row}-${p.col}` === key) &&
-                           !fallPositions.some(p => `${p.row}-${p.col}` === key)
-              if (isNew) {
-                newPositions.push({ row, col })
-              }
-            }
-          }
-        }
-        this.setBatchAnimationStates(newPositions, 'appearing')
+        // 只标记真正新填充的元素
+        this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
 
         // 等待新元素出现动画 (300ms)
         await this.delay(300)
 
         // 清除新元素动画状态
-        newPositions.forEach(pos => {
+        fillResult.filledPositions.forEach(pos => {
           this.setAnimationState(pos, null)
         })
 
@@ -231,6 +256,114 @@ export const useGameStore = defineStore('game', {
     },
 
     /**
+     * 触发被消除的特殊道具效果（连锁触发）
+     */
+    async triggerSpecialsInMatch(specialItems: SpecialItemInfo[]) {
+      // 收集所有需要触发的特殊道具及其影响范围
+      const allAffectedPositions: Position[] = []
+      const processedPositions = new Set<string>()
+      
+      for (const item of specialItems) {
+        const key = `${item.position.row}-${item.position.col}`
+        // 避免重复处理同一位置
+        if (processedPositions.has(key)) continue
+        processedPositions.add(key)
+        
+        // 使用传入的特殊道具类型信息，直接计算影响范围
+        const affectedPositions = triggerSpecialEffect(this.board, item.position, item.specialType)
+        
+        if (affectedPositions.length > 0) {
+          allAffectedPositions.push(...affectedPositions)
+        }
+      }
+      
+      if (allAffectedPositions.length === 0) return
+      
+      // 去重
+      const uniquePositions: Position[] = []
+      const seenPositions = new Set<string>()
+      for (const pos of allAffectedPositions) {
+        const key = `${pos.row}-${pos.col}`
+        if (!seenPositions.has(key)) {
+          seenPositions.add(key)
+          uniquePositions.push(pos)
+        }
+      }
+      
+      // 收集受影响区域中的其他特殊道具
+      const additionalSpecials: SpecialItemInfo[] = []
+      uniquePositions.forEach(pos => {
+        const element = this.board[pos.row]?.[pos.col]
+        if (element?.special && !processedPositions.has(`${pos.row}-${pos.col}`)) {
+          additionalSpecials.push({
+            position: pos,
+            specialType: element.special
+          })
+        }
+      })
+      
+      // 标记动画元素
+      this.setBatchAnimationStates(uniquePositions, 'matching')
+      
+      // 计算分数
+      this.score += calculateScore(uniquePositions.length, this.combo, true)
+      
+      // 更新最高分
+      if (this.score > this.highScore) {
+        this.highScore = this.score
+        this.saveHighScore()
+      }
+      
+      // 等待消除动画 (300ms)
+      await this.delay(300)
+      
+      // 清除动画状态
+      uniquePositions.forEach(pos => {
+        this.setAnimationState(pos, null)
+      })
+      
+      // 移除受影响的元素
+      for (const pos of uniquePositions) {
+        this.board[pos.row][pos.col] = null as any
+      }
+      
+      // 如果有额外的特殊道具被触发，递归处理
+      if (additionalSpecials.length > 0) {
+        await this.triggerSpecialsInMatch(additionalSpecials)
+      }
+      
+      // 元素下落动画
+      const dropResult = dropElements(this.board)
+      this.board = dropResult.newBoard
+      
+      const fallPositions: Position[] = dropResult.movedElements.map(m => m.to)
+      this.fallingAnimations = dropResult.movedElements
+      this.setBatchAnimationStates(fallPositions, 'falling')
+      
+      // 等待下落动画 (400ms)
+      await this.delay(400)
+      
+      // 清除下落动画状态
+      fallPositions.forEach(pos => {
+        this.setAnimationState(pos, null)
+      })
+      
+      // 填充新元素
+      const fillResult = fillBoard(this.board)
+      this.board = fillResult.newBoard
+      
+      this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
+      
+      // 等待新元素出现动画 (300ms)
+      await this.delay(300)
+      
+      // 清除新元素动画状态
+      fillResult.filledPositions.forEach(pos => {
+        this.setAnimationState(pos, null)
+      })
+    },
+
+    /**
      * 触发特殊道具
      */
     async activateSpecial(position: Position) {
@@ -240,6 +373,7 @@ export const useGameStore = defineStore('game', {
       if (!element?.special) return
 
       this.isAnimating = true
+      this.selectedElement = null
 
       // 获取特殊道具影响的位置
       const affectedPositions = triggerSpecialEffect(this.board, position)
@@ -271,17 +405,12 @@ export const useGameStore = defineStore('game', {
         }
 
         // 元素下落动画
-        this.board = dropElements(this.board)
+        const dropResult = dropElements(this.board)
+        this.board = dropResult.newBoard
         
-        // 标记下落动画
-        const fallPositions: Position[] = []
-        for (let row = 0; row < this.board.length; row++) {
-          for (let col = 0; col < this.board[row].length; col++) {
-            if (this.board[row][col]) {
-              fallPositions.push({ row, col })
-            }
-          }
-        }
+        // 只标记真正移动了的元素
+        const fallPositions: Position[] = dropResult.movedElements.map(m => m.to)
+        this.fallingAnimations = dropResult.movedElements
         this.setBatchAnimationStates(fallPositions, 'falling')
 
         // 等待下落动画 (400ms)
@@ -293,29 +422,17 @@ export const useGameStore = defineStore('game', {
         })
 
         // 填充新元素
-        this.board = fillBoard(this.board)
+        const fillResult = fillBoard(this.board)
+        this.board = fillResult.newBoard
 
-        // 标记新元素动画
-        const newPositions: Position[] = []
-        for (let row = 0; row < this.board.length; row++) {
-          for (let col = 0; col < this.board[row].length; col++) {
-            if (this.board[row][col]) {
-              const key = `${row}-${col}`
-              const isNew = !affectedPositions.some(p => `${p.row}-${p.col}` === key) &&
-                           !fallPositions.some(p => `${p.row}-${p.col}` === key)
-              if (isNew) {
-                newPositions.push({ row, col })
-              }
-            }
-          }
-        }
-        this.setBatchAnimationStates(newPositions, 'appearing')
+        // 只标记真正新填充的元素
+        this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
 
         // 等待新元素出现动画 (300ms)
         await this.delay(300)
 
         // 清除新元素动画状态
-        newPositions.forEach(pos => {
+        fillResult.filledPositions.forEach(pos => {
           this.setAnimationState(pos, null)
         })
 
@@ -332,9 +449,28 @@ export const useGameStore = defineStore('game', {
     selectElement(position: Position) {
       if (!this.canInteract) return
 
+      // 重置交互时间和清除提示
+      this.lastInteractionTime = Date.now()
+      this.hintPositions = []
+      this.isShowingHint = false
+
+      const clickedElement = this.board[position.row]?.[position.col]
+
+      // 如果点击的是特殊道具，且没有选中其他元素，直接激活
+      if (clickedElement?.special && !this.selectedElement) {
+        this.activateSpecial(position)
+        return
+      }
+
       if (!this.selectedElement) {
         // 第一次选择
         this.selectedElement = position
+      } else if (
+        this.selectedElement.row === position.row &&
+        this.selectedElement.col === position.col
+      ) {
+        // 再次点击同一元素，取消选择
+        this.selectedElement = null
       } else {
         // 第二次选择，尝试交换
         if (areAdjacent(this.selectedElement, position)) {
@@ -400,6 +536,29 @@ export const useGameStore = defineStore('game', {
      */
     delay(ms: number): Promise<void> {
       return new Promise(resolve => setTimeout(resolve, ms))
+    },
+
+    /**
+     * 显示提示 - 抖动可消除的方块
+     */
+    showHint() {
+      if (this.isShowingHint || this.isAnimating || !this.isPlaying || this.isGameOver) {
+        return
+      }
+      
+      const validMoves = findValidMoves(this.board)
+      if (validMoves.length > 0) {
+        this.hintPositions = validMoves
+        this.isShowingHint = true
+      }
+    },
+
+    /**
+     * 清除提示
+     */
+    clearHint() {
+      this.hintPositions = []
+      this.isShowingHint = false
     },
   },
 })

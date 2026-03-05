@@ -386,7 +386,6 @@
 
 /* 禁用状态 */
 .game-element.disabled {
-  opacity: 0.5;
   cursor: not-allowed;
   pointer-events: none;
 }

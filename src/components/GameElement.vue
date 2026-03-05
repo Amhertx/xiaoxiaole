@@ -225,11 +225,9 @@ const onAnimationEnd = (event: AnimationEvent) => {
 @keyframes falling {
   0% {
     transform: translateY(calc(var(--fall-distance, 0) * -1));
-    opacity: 0.8;
   }
   100% {
     transform: translateY(0);
-    opacity: 1;
   }
 }
 

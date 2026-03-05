@@ -1,10 +1,47 @@
 <script setup lang="ts">
 import { useGameStore } from '../stores/gameStore'
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { Position } from '../types/game'
 import GameElement from './GameElement.vue'
 
 const gameStore = useGameStore()
+const CELL_SIZE = 54 // 50px cell + 4px gap
+const HINT_DELAY = 10000 // 10秒后显示提示
+
+const hintTimer = ref<number | null>(null)
+
+const startHintTimer = () => {
+  if (hintTimer.value) {
+    clearInterval(hintTimer.value)
+  }
+  
+  hintTimer.value = window.setInterval(() => {
+    if (!gameStore.canInteract) return
+    if (gameStore.isShowingHint) return
+    
+    const now = Date.now()
+    const elapsed = now - gameStore.lastInteractionTime
+    
+    if (elapsed >= HINT_DELAY) {
+      gameStore.showHint()
+    }
+  }, 1000)
+}
+
+const stopHintTimer = () => {
+  if (hintTimer.value) {
+    clearInterval(hintTimer.value)
+    hintTimer.value = null
+  }
+}
+
+onMounted(() => {
+  startHintTimer()
+})
+
+onUnmounted(() => {
+  stopHintTimer()
+})
 
 const handleCellClick = (row: number, col: number) => {
   const position: Position = { row, col }
@@ -13,6 +50,12 @@ const handleCellClick = (row: number, col: number) => {
 
 const isSelected = (row: number, col: number): boolean => {
   return gameStore.selectedElement?.row === row && gameStore.selectedElement?.col === col
+}
+
+const isHintPosition = (row: number, col: number): boolean => {
+  return gameStore.hintPositions.some(
+    pos => pos.row === row && pos.col === col
+  )
 }
 
 const isGameOver = computed(() => gameStore.isGameOver)
@@ -40,6 +83,54 @@ const getAnimationClass = (row: number, col: number): Record<string, boolean> =>
   }
 }
 
+const getSwapAnimationStyle = (row: number, col: number): Record<string, string> => {
+  const swap = gameStore.swapAnimation
+  if (!swap) return {}
+  
+  const pos = { row, col }
+  const isFrom = swap.from.row === row && swap.from.col === col
+  const isTo = swap.to.row === row && swap.to.col === col
+  
+  if (!isFrom && !isTo) return {}
+  
+  let dx = 0, dy = 0
+  if (isFrom) {
+    dx = (swap.to.col - swap.from.col) * CELL_SIZE
+    dy = (swap.to.row - swap.from.row) * CELL_SIZE
+  } else if (isTo) {
+    dx = (swap.from.col - swap.to.col) * CELL_SIZE
+    dy = (swap.from.row - swap.to.row) * CELL_SIZE
+  }
+  
+  return {
+    '--swap-x': `${dx}px`,
+    '--swap-y': `${dy}px`,
+  }
+}
+
+const getFallingAnimationStyle = (row: number, col: number): Record<string, string> => {
+  const fallAnim = gameStore.fallingAnimations.find(
+    a => a.to.row === row && a.to.col === col
+  )
+  if (!fallAnim) return {}
+  
+  const dropDistance = (fallAnim.to.row - fallAnim.from.row) * CELL_SIZE
+  return {
+    '--fall-distance': `${dropDistance}px`,
+  }
+}
+
+const getAnimationStyle = (row: number, col: number): Record<string, string> => {
+  const state = animationMatrix.value[row]?.[col]
+  if (state === 'swapping') {
+    return getSwapAnimationStyle(row, col)
+  }
+  if (state === 'falling') {
+    return getFallingAnimationStyle(row, col)
+  }
+  return {}
+}
+
 const handleAnimationEnd = (row: number, col: number) => {
   gameStore.setAnimationState({ row, col }, null)
 }
@@ -61,15 +152,18 @@ const handleAnimationEnd = (row: number, col: number) => {
             :class="[ 
               { 
                 'selected': isSelected(rowIndex, colIndex),
-                'disabled': !gameStore.canInteract
+                'disabled': !gameStore.canInteract,
+                'hint-shake': isHintPosition(rowIndex, colIndex)
               },
               getAnimationClass(rowIndex, colIndex)
             ]"
+            :style="getAnimationStyle(rowIndex, colIndex)"
             @click="handleCellClick(rowIndex, colIndex)"
             @animationend="handleAnimationEnd(rowIndex, colIndex)"
           >
             <GameElement 
               v-if="element"
+              :key="element.id"
               :element="element"
             />
           </div>
@@ -127,7 +221,7 @@ const handleAnimationEnd = (row: number, col: number) => {
   position: relative;
 }
 
-.board-cell:hover:not(.disabled) {
+.board-cell:hover:not(.disabled):not(.selected) {
   transform: scale(1.05);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
@@ -139,7 +233,31 @@ const handleAnimationEnd = (row: number, col: number) => {
 
 .board-cell.disabled {
   cursor: not-allowed;
-  opacity: 0.7;
+}
+
+.board-cell.hint-shake {
+  animation: hintShake 5s ease-in-out infinite;
+}
+
+@keyframes hintShake {
+  0%, 9%, 100% {
+    transform: translateX(0);
+  }
+  1% {
+    transform: translateX(-3px);
+  }
+  2% {
+    transform: translateX(3px);
+  }
+  3% {
+    transform: translateX(-3px);
+  }
+  4% {
+    transform: translateX(3px);
+  }
+  5% {
+    transform: translateX(0);
+  }
 }
 
 .board-cell.matching {
@@ -167,28 +285,23 @@ const handleAnimationEnd = (row: number, col: number) => {
 
 @keyframes falling {
   0% {
-    transform: translateY(-60px);
-    opacity: 0.5;
+    transform: translateY(calc(var(--fall-distance, -60px) * -1));
   }
   100% {
     transform: translateY(0);
-    opacity: 1;
   }
 }
 
 .board-cell.swapping {
-  animation: swapping 0.25s ease-in-out;
+  animation: swapping 0.3s ease-in-out forwards;
 }
 
 @keyframes swapping {
-  0%, 100% {
+  0% {
     transform: translate(0, 0);
   }
-  25% {
-    transform: translate(5px, 0);
-  }
-  75% {
-    transform: translate(-5px, 0);
+  100% {
+    transform: translate(var(--swap-x, 0), var(--swap-y, 0));
   }
 }
 

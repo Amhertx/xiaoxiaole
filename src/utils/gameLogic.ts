@@ -1,11 +1,21 @@
 import type { GameElement, Position, Match, ElementType, SpecialType } from '../types/game'
 import { ELEMENT_TYPES, BOARD_SIZE } from '../types/game'
 
+let elementIdCounter = 0
+
+/**
+ * 生成唯一ID
+ */
+function generateElementId(): string {
+  return `element-${Date.now()}-${elementIdCounter++}`
+}
+
 /**
  * 创建一个游戏元素
  */
 export function createElement(row: number, col: number, type?: ElementType): GameElement {
   return {
+    id: generateElementId(),
     type: type || getRandomElementType(),
     special: null,
     position: { row, col },
@@ -251,17 +261,22 @@ export function removeMatches(
 
 /**
  * 触发特殊道具效果 - 返回需要消除的位置
+ * @param board 棋盘
+ * @param position 特殊道具位置
+ * @param specialType 可选的特殊道具类型，如果不提供则从board中读取
  */
 export function triggerSpecialEffect(
   board: GameElement[][],
-  position: Position
+  position: Position,
+  specialType?: SpecialType
 ): Position[] {
-  const element = board[position.row]?.[position.col]
-  if (!element?.special) return []
+  // 如果没有传入特殊类型，从board中读取
+  const type = specialType ?? board[position.row]?.[position.col]?.special
+  if (!type) return []
   
   const positions: Position[] = []
   
-  if (element.special === 'bomb') {
+  if (type === 'bomb') {
     // 炸弹：消除3x3范围
     for (let row = position.row - 1; row <= position.row + 1; row++) {
       for (let col = position.col - 1; col <= position.col + 1; col++) {
@@ -270,7 +285,7 @@ export function triggerSpecialEffect(
         }
       }
     }
-  } else if (element.special === 'superBomb') {
+  } else if (type === 'superBomb') {
     // 超级炸弹：消除整行和整列
     for (let col = 0; col < BOARD_SIZE; col++) {
       positions.push({ row: position.row, col })
@@ -287,19 +302,30 @@ export function triggerSpecialEffect(
 
 /**
  * 元素下落 - 填充空位
+ * 返回新棋盘和移动信息
  */
-export function dropElements(board: GameElement[][]): GameElement[][] {
+export function dropElements(board: GameElement[][]): { 
+  newBoard: GameElement[][], 
+  movedElements: Array<{ from: Position, to: Position }> 
+} {
   const newBoard = board.map(row => [...row])
+  const movedElements: Array<{ from: Position, to: Position }> = []
   
   for (let col = 0; col < BOARD_SIZE; col++) {
-    // 从底部开始，将非空元素下落
     let writeRow = BOARD_SIZE - 1
     
     for (let row = BOARD_SIZE - 1; row >= 0; row--) {
       if (newBoard[row][col]) {
         if (row !== writeRow) {
-          newBoard[writeRow][col] = newBoard[row][col]
-          newBoard[writeRow][col].position = { row: writeRow, col }
+          movedElements.push({
+            from: { row, col },
+            to: { row: writeRow, col }
+          })
+          // 创建新的对象，避免引用问题
+          newBoard[writeRow][col] = {
+            ...newBoard[row][col],
+            position: { row: writeRow, col }
+          }
           newBoard[row][col] = null as any
         }
         writeRow--
@@ -307,24 +333,30 @@ export function dropElements(board: GameElement[][]): GameElement[][] {
     }
   }
   
-  return newBoard
+  return { newBoard, movedElements }
 }
 
 /**
  * 填充新元素
+ * 返回新棋盘和新填充的位置
  */
-export function fillBoard(board: GameElement[][]): GameElement[][] {
+export function fillBoard(board: GameElement[][]): { 
+  newBoard: GameElement[][], 
+  filledPositions: Position[] 
+} {
   const newBoard = board.map(row => [...row])
+  const filledPositions: Position[] = []
   
   for (let col = 0; col < BOARD_SIZE; col++) {
     for (let row = 0; row < BOARD_SIZE; row++) {
       if (!newBoard[row][col]) {
         newBoard[row][col] = createElement(row, col)
+        filledPositions.push({ row, col })
       }
     }
   }
   
-  return newBoard
+  return { newBoard, filledPositions }
 }
 
 /**
@@ -370,6 +402,68 @@ export function hasValidMoves(board: GameElement[][]): boolean {
   }
   
   return false
+}
+
+/**
+ * 查找可消除的方块位置
+ * 返回第一个有效交换后会被消除的方块位置数组（在原始棋盘上的位置）
+ */
+export function findValidMoves(board: GameElement[][]): Position[] {
+  for (let row = 0; row < BOARD_SIZE; row++) {
+    for (let col = 0; col < BOARD_SIZE; col++) {
+      // 检查向右交换
+      if (col < BOARD_SIZE - 1) {
+        const from = { row, col }
+        const to = { row, col: col + 1 }
+        const testBoard = swapElements(board, from, to)
+        const matches = findAllMatches(testBoard)
+        if (matches.length > 0) {
+          // 将交换后棋盘上的位置映射回原始棋盘
+          const positions: Position[] = []
+          for (const match of matches) {
+            for (const pos of match.positions) {
+              // 如果这个位置参与了交换，映射回原始位置
+              if (pos.row === to.row && pos.col === to.col) {
+                positions.push(from)
+              } else if (pos.row === from.row && pos.col === from.col) {
+                positions.push(to)
+              } else {
+                positions.push(pos)
+              }
+            }
+          }
+          return positions
+        }
+      }
+      
+      // 检查向下交换
+      if (row < BOARD_SIZE - 1) {
+        const from = { row, col }
+        const to = { row: row + 1, col }
+        const testBoard = swapElements(board, from, to)
+        const matches = findAllMatches(testBoard)
+        if (matches.length > 0) {
+          // 将交换后棋盘上的位置映射回原始棋盘
+          const positions: Position[] = []
+          for (const match of matches) {
+            for (const pos of match.positions) {
+              // 如果这个位置参与了交换，映射回原始位置
+              if (pos.row === to.row && pos.col === to.col) {
+                positions.push(from)
+              } else if (pos.row === from.row && pos.col === from.col) {
+                positions.push(to)
+              } else {
+                positions.push(pos)
+              }
+            }
+          }
+          return positions
+        }
+      }
+    }
+  }
+  
+  return []
 }
 
 /**

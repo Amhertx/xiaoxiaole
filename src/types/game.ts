@@ -20,6 +20,7 @@ export interface Position {
  * 游戏元素
  */
 export interface GameElement {
+  id: string // 唯一标识符，用于Vue的key绑定
   type: ElementType
   special: SpecialType
   position: Position
@@ -60,6 +61,11 @@ export interface GameState {
   selectedElement: Position | null // 当前选中的元素
   isAnimating: boolean // 是否正在播放动画
   animatingElements: Record<string, 'matching' | 'falling' | 'swapping' | 'appearing' | null> // 动画状态映射
+  swapAnimation: { from: Position; to: Position } | null // 交换动画数据
+  fallingAnimations: Array<{ from: Position; to: Position }> // 下落动画数据
+  lastInteractionTime: number // 最后一次交互时间戳
+  hintPositions: Position[] // 需要提示的方块位置数组
+  isShowingHint: boolean // 是否正在显示提示
 }
 
 /**
