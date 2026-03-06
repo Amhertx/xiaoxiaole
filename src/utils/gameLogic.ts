@@ -1,5 +1,5 @@
-import type { GameElement, Position, Match, ElementType, SpecialType } from '../types/game'
-import { ELEMENT_TYPES, BOARD_SIZE } from '../types/game'
+import type { GameElement, Position, Match, ElementType, SpecialType, BoardSize } from '../types/game'
+import { ELEMENT_TYPES } from '../types/game'
 
 let elementIdCounter = 0
 
@@ -33,16 +33,15 @@ export function getRandomElementType(): ElementType {
 /**
  * 初始化棋盘 - 确保没有初始匹配
  */
-export function initializeBoard(): GameElement[][] {
+export function initializeBoard(boardSize: BoardSize = 8): GameElement[][] {
   const board: GameElement[][] = []
   
-  for (let row = 0; row < BOARD_SIZE; row++) {
+  for (let row = 0; row < boardSize; row++) {
     board[row] = []
-    for (let col = 0; col < BOARD_SIZE; col++) {
+    for (let col = 0; col < boardSize; col++) {
       let element = createElement(row, col)
       
-      // 确保新元素不会形成匹配
-      while (wouldCreateMatch(board, row, col, element.type)) {
+      while (wouldCreateMatch(board, row, col, element.type, boardSize)) {
         element = createElement(row, col)
       }
       
@@ -60,9 +59,9 @@ function wouldCreateMatch(
   board: GameElement[][],
   row: number,
   col: number,
-  type: ElementType
+  type: ElementType,
+  _boardSize?: BoardSize
 ): boolean {
-  // 检查水平方向（左侧）
   if (col >= 2) {
     const left1 = board[row][col - 1]
     const left2 = board[row][col - 2]
@@ -71,7 +70,6 @@ function wouldCreateMatch(
     }
   }
   
-  // 检查垂直方向（上方）
   if (row >= 2) {
     const up1 = board[row - 1]?.[col]
     const up2 = board[row - 2]?.[col]
@@ -86,28 +84,25 @@ function wouldCreateMatch(
 /**
  * 检测所有匹配
  */
-export function findAllMatches(board: GameElement[][]): Match[] {
+export function findAllMatches(board: GameElement[][], boardSize: BoardSize = 8): Match[] {
   const matches: Match[] = []
   const visited = new Set<string>()
   
-  // 先收集所有水平和垂直匹配
   const horizontalMatches: Match[] = []
   const verticalMatches: Match[] = []
   
-  // 检测水平匹配
-  for (let row = 0; row < BOARD_SIZE; row++) {
-    for (let col = 0; col < BOARD_SIZE - 2; col++) {
-      const match = findHorizontalMatch(board, row, col)
+  for (let row = 0; row < boardSize; row++) {
+    for (let col = 0; col < boardSize - 2; col++) {
+      const match = findHorizontalMatch(board, row, col, boardSize)
       if (match) {
         horizontalMatches.push(match)
       }
     }
   }
   
-  // 检测垂直匹配
-  for (let row = 0; row < BOARD_SIZE - 2; row++) {
-    for (let col = 0; col < BOARD_SIZE; col++) {
-      const match = findVerticalMatch(board, row, col)
+  for (let row = 0; row < boardSize - 2; row++) {
+    for (let col = 0; col < boardSize; col++) {
+      const match = findVerticalMatch(board, row, col, boardSize)
       if (match) {
         verticalMatches.push(match)
       }
@@ -215,14 +210,15 @@ function mergeLShapePositions(horizontal: Position[], vertical: Position[]): Pos
 function findHorizontalMatch(
   board: GameElement[][],
   row: number,
-  startCol: number
+  startCol: number,
+  boardSize: BoardSize
 ): Match | null {
   const type = board[row][startCol]?.type
   if (!type) return null
   
   const positions: Position[] = [{ row, col: startCol }]
   
-  for (let col = startCol + 1; col < BOARD_SIZE; col++) {
+  for (let col = startCol + 1; col < boardSize; col++) {
     if (board[row][col]?.type === type) {
       positions.push({ row, col })
     } else {
@@ -239,14 +235,15 @@ function findHorizontalMatch(
 function findVerticalMatch(
   board: GameElement[][],
   startRow: number,
-  col: number
+  col: number,
+  boardSize: BoardSize
 ): Match | null {
   const type = board[startRow]?.[col]?.type
   if (!type) return null
   
   const positions: Position[] = [{ row: startRow, col }]
   
-  for (let row = startRow + 1; row < BOARD_SIZE; row++) {
+  for (let row = startRow + 1; row < boardSize; row++) {
     if (board[row]?.[col]?.type === type) {
       positions.push({ row, col })
     } else {
@@ -392,29 +389,27 @@ export function removeMatches(
 export function triggerSpecialEffect(
   board: GameElement[][],
   position: Position,
-  specialType?: SpecialType
+  specialType?: SpecialType,
+  boardSize: BoardSize = 8
 ): Position[] {
-  // 如果没有传入特殊类型，从board中读取
   const type = specialType ?? board[position.row]?.[position.col]?.special
   if (!type) return []
   
   const positions: Position[] = []
   
   if (type === 'bomb') {
-    // 炸弹：消除3x3范围
     for (let row = position.row - 1; row <= position.row + 1; row++) {
       for (let col = position.col - 1; col <= position.col + 1; col++) {
-        if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE) {
+        if (row >= 0 && row < boardSize && col >= 0 && col < boardSize) {
           positions.push({ row, col })
         }
       }
     }
   } else if (type === 'superBomb') {
-    // 超级炸弹：消除整行和整列
-    for (let col = 0; col < BOARD_SIZE; col++) {
+    for (let col = 0; col < boardSize; col++) {
       positions.push({ row: position.row, col })
     }
-    for (let row = 0; row < BOARD_SIZE; row++) {
+    for (let row = 0; row < boardSize; row++) {
       if (row !== position.row) {
         positions.push({ row, col: position.col })
       }
@@ -428,24 +423,23 @@ export function triggerSpecialEffect(
  * 元素下落 - 填充空位
  * 返回新棋盘和移动信息
  */
-export function dropElements(board: GameElement[][]): { 
+export function dropElements(board: GameElement[][], boardSize: BoardSize = 8): { 
   newBoard: GameElement[][], 
   movedElements: Array<{ from: Position, to: Position }> 
 } {
   const newBoard = board.map(row => [...row])
   const movedElements: Array<{ from: Position, to: Position }> = []
   
-  for (let col = 0; col < BOARD_SIZE; col++) {
-    let writeRow = BOARD_SIZE - 1
+  for (let col = 0; col < boardSize; col++) {
+    let writeRow = boardSize - 1
     
-    for (let row = BOARD_SIZE - 1; row >= 0; row--) {
+    for (let row = boardSize - 1; row >= 0; row--) {
       if (newBoard[row][col]) {
         if (row !== writeRow) {
           movedElements.push({
             from: { row, col },
             to: { row: writeRow, col }
           })
-          // 创建新的对象，避免引用问题
           newBoard[writeRow][col] = {
             ...newBoard[row][col],
             position: { row: writeRow, col }
@@ -464,15 +458,15 @@ export function dropElements(board: GameElement[][]): {
  * 填充新元素
  * 返回新棋盘和新填充的位置
  */
-export function fillBoard(board: GameElement[][]): { 
+export function fillBoard(board: GameElement[][], boardSize: BoardSize = 8): { 
   newBoard: GameElement[][], 
   filledPositions: Position[] 
 } {
   const newBoard = board.map(row => [...row])
   const filledPositions: Position[] = []
   
-  for (let col = 0; col < BOARD_SIZE; col++) {
-    for (let row = 0; row < BOARD_SIZE; row++) {
+  for (let col = 0; col < boardSize; col++) {
+    for (let row = 0; row < boardSize; row++) {
       if (!newBoard[row][col]) {
         newBoard[row][col] = createElement(row, col)
         filledPositions.push({ row, col })
@@ -504,21 +498,19 @@ export function calculateScore(
 /**
  * 检查是否有可行的移动
  */
-export function hasValidMoves(board: GameElement[][]): boolean {
-  for (let row = 0; row < BOARD_SIZE; row++) {
-    for (let col = 0; col < BOARD_SIZE; col++) {
-      // 检查向右交换
-      if (col < BOARD_SIZE - 1) {
+export function hasValidMoves(board: GameElement[][], boardSize: BoardSize = 8): boolean {
+  for (let row = 0; row < boardSize; row++) {
+    for (let col = 0; col < boardSize; col++) {
+      if (col < boardSize - 1) {
         const testBoard = swapElements(board, { row, col }, { row, col: col + 1 })
-        if (findAllMatches(testBoard).length > 0) {
+        if (findAllMatches(testBoard, boardSize).length > 0) {
           return true
         }
       }
       
-      // 检查向下交换
-      if (row < BOARD_SIZE - 1) {
+      if (row < boardSize - 1) {
         const testBoard = swapElements(board, { row, col }, { row: row + 1, col })
-        if (findAllMatches(testBoard).length > 0) {
+        if (findAllMatches(testBoard, boardSize).length > 0) {
           return true
         }
       }
@@ -532,21 +524,18 @@ export function hasValidMoves(board: GameElement[][]): boolean {
  * 查找可消除的方块位置
  * 返回第一个有效交换后会被消除的方块位置数组（在原始棋盘上的位置）
  */
-export function findValidMoves(board: GameElement[][]): Position[] {
-  for (let row = 0; row < BOARD_SIZE; row++) {
-    for (let col = 0; col < BOARD_SIZE; col++) {
-      // 检查向右交换
-      if (col < BOARD_SIZE - 1) {
+export function findValidMoves(board: GameElement[][], boardSize: BoardSize = 8): Position[] {
+  for (let row = 0; row < boardSize; row++) {
+    for (let col = 0; col < boardSize; col++) {
+      if (col < boardSize - 1) {
         const from = { row, col }
         const to = { row, col: col + 1 }
         const testBoard = swapElements(board, from, to)
-        const matches = findAllMatches(testBoard)
+        const matches = findAllMatches(testBoard, boardSize)
         if (matches.length > 0) {
-          // 将交换后棋盘上的位置映射回原始棋盘
           const positions: Position[] = []
           for (const match of matches) {
             for (const pos of match.positions) {
-              // 如果这个位置参与了交换，映射回原始位置
               if (pos.row === to.row && pos.col === to.col) {
                 positions.push(from)
               } else if (pos.row === from.row && pos.col === from.col) {
@@ -560,18 +549,15 @@ export function findValidMoves(board: GameElement[][]): Position[] {
         }
       }
       
-      // 检查向下交换
-      if (row < BOARD_SIZE - 1) {
+      if (row < boardSize - 1) {
         const from = { row, col }
         const to = { row: row + 1, col }
         const testBoard = swapElements(board, from, to)
-        const matches = findAllMatches(testBoard)
+        const matches = findAllMatches(testBoard, boardSize)
         if (matches.length > 0) {
-          // 将交换后棋盘上的位置映射回原始棋盘
           const positions: Position[] = []
           for (const match of matches) {
             for (const pos of match.positions) {
-              // 如果这个位置参与了交换，映射回原始位置
               if (pos.row === to.row && pos.col === to.col) {
                 positions.push(from)
               } else if (pos.row === from.row && pos.col === from.col) {

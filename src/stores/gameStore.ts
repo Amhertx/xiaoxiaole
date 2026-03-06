@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { GameState, GameElement, Position, SpecialType } from '../types/game'
-import { STORAGE_KEYS } from '../types/game'
+import type { GameState, GameElement, Position, SpecialType, BoardSize } from '../types/game'
+import { STORAGE_KEYS, DEFAULT_BOARD_SIZE, isMobileDevice } from '../types/game'
 import {
   initializeBoard,
   findAllMatches,
@@ -23,9 +23,11 @@ interface SpecialItemInfo {
 export const useGameStore = defineStore('game', {
   state: (): GameState => ({
     board: [],
+    boardSize: DEFAULT_BOARD_SIZE,
     score: 0,
     combo: 0,
     highScore: 0,
+    highScores: { 6: 0, 8: 0 },
     isGameOver: false,
     isPlaying: false,
     selectedElement: null,
@@ -81,8 +83,39 @@ export const useGameStore = defineStore('game', {
       this.animatingElements = { ...this.animatingElements, ...updates }
     },
 
+    setBoardSize(size: BoardSize) {
+      this.boardSize = size
+      this.highScore = this.highScores[size]
+    },
+
+    loadBoardSize() {
+      if (isMobileDevice()) {
+        this.boardSize = 6
+        return
+      }
+      try {
+        const saved = localStorage.getItem(STORAGE_KEYS.BOARD_SIZE)
+        if (saved) {
+          const size = parseInt(saved, 10) as BoardSize
+          if (size === 6 || size === 8) {
+            this.boardSize = size
+          }
+        }
+      } catch (error) {
+        console.error('加载棋盘尺寸失败:', error)
+      }
+    },
+
+    saveBoardSize() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.BOARD_SIZE, this.boardSize.toString())
+      } catch (error) {
+        console.error('保存棋盘尺寸失败:', error)
+      }
+    },
+
     initBoard() {
-      this.board = initializeBoard()
+      this.board = initializeBoard(this.boardSize)
       this.score = 0
       this.combo = 0
       this.isGameOver = false
@@ -127,7 +160,7 @@ export const useGameStore = defineStore('game', {
       this.swapAnimation = null
 
       // 检查是否有匹配
-      const matches = findAllMatches(this.board)
+      const matches = findAllMatches(this.board, this.boardSize)
 
       if (matches.length === 0) {
         // 没有匹配，交换回来
@@ -157,7 +190,7 @@ export const useGameStore = defineStore('game', {
      * 处理匹配消除流程
      */
     async processMatches(swapPositions?: { from: Position; to: Position }) {
-      let matches = findAllMatches(this.board)
+      let matches = findAllMatches(this.board, this.boardSize)
       let combo = 0
       let isFirstMatch = true
       
@@ -218,8 +251,7 @@ export const useGameStore = defineStore('game', {
         // 执行下落和填充动画
         await this.runDropAndFillAnimation()
 
-        // 检查新的匹配
-        matches = findAllMatches(this.board)
+        matches = findAllMatches(this.board, this.boardSize)
       }
 
       // 重置连击
@@ -241,7 +273,7 @@ export const useGameStore = defineStore('game', {
         processedPositions.add(key)
         
         // 使用传入的特殊道具类型信息，直接计算影响范围
-        const affectedPositions = triggerSpecialEffect(this.board, item.position, item.specialType)
+        const affectedPositions = triggerSpecialEffect(this.board, item.position, item.specialType, this.boardSize)
         
         if (affectedPositions.length > 0) {
           allAffectedPositions.push(...affectedPositions)
@@ -304,7 +336,7 @@ export const useGameStore = defineStore('game', {
       this.selectedElement = null
 
       // 获取特殊道具影响的位置
-      const affectedPositions = triggerSpecialEffect(this.board, position)
+      const affectedPositions = triggerSpecialEffect(this.board, position, undefined, this.boardSize)
       
       if (affectedPositions.length > 0) {
         // 计算分数
@@ -376,7 +408,7 @@ export const useGameStore = defineStore('game', {
      * 检查游戏是否结束
      */
     checkGameOver() {
-      if (!hasValidMoves(this.board)) {
+      if (!hasValidMoves(this.board, this.boardSize)) {
         this.isGameOver = true
         this.isPlaying = false
       }
@@ -394,10 +426,14 @@ export const useGameStore = defineStore('game', {
      */
     loadHighScore() {
       try {
-        const saved = localStorage.getItem(STORAGE_KEYS.HIGH_SCORE)
-        if (saved) {
-          this.highScore = parseInt(saved, 10) || 0
-        }
+        const sizes: BoardSize[] = [6, 8]
+        sizes.forEach(size => {
+          const saved = localStorage.getItem(STORAGE_KEYS.HIGH_SCORE(size))
+          if (saved) {
+            this.highScores[size] = parseInt(saved, 10) || 0
+          }
+        })
+        this.highScore = this.highScores[this.boardSize]
       } catch (error) {
         console.error('加载最高分失败:', error)
       }
@@ -408,7 +444,7 @@ export const useGameStore = defineStore('game', {
      */
     saveHighScore() {
       try {
-        localStorage.setItem(STORAGE_KEYS.HIGH_SCORE, this.highScore.toString())
+        localStorage.setItem(STORAGE_KEYS.HIGH_SCORE(this.boardSize), this.highScore.toString())
       } catch (error) {
         console.error('保存最高分失败:', error)
       }
@@ -418,8 +454,7 @@ export const useGameStore = defineStore('game', {
      * 执行下落和填充动画（用于processMatches）
      */
     async runDropAndFillAnimation() {
-      // 1. 下落动画
-      const dropResult = dropElements(this.board)
+      const dropResult = dropElements(this.board, this.boardSize)
       this.board = dropResult.newBoard
       const fallPositions: Position[] = dropResult.movedElements.map(m => m.to)
       this.fallingAnimations = dropResult.movedElements
@@ -429,8 +464,7 @@ export const useGameStore = defineStore('game', {
         this.setAnimationState(pos, null)
       })
 
-      // 2. 填充动画
-      const fillResult = fillBoard(this.board)
+      const fillResult = fillBoard(this.board, this.boardSize)
       this.board = fillResult.newBoard
       this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
       await this.delay(300)
@@ -475,7 +509,7 @@ export const useGameStore = defineStore('game', {
         return
       }
       
-      const validMoves = findValidMoves(this.board)
+      const validMoves = findValidMoves(this.board, this.boardSize)
       if (validMoves.length > 0) {
         this.hintPositions = validMoves
         this.isShowingHint = true

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useGameStore } from '../stores/gameStore'
 import { computed } from 'vue'
+import BoardSizeSelector from './BoardSizeSelector.vue'
 
 const gameStore = useGameStore()
 
@@ -20,6 +21,7 @@ const handleResetGame = () => {
   <div class="game-header">
     <div class="title-section">
       <h1 class="game-title">消消乐</h1>
+      <BoardSizeSelector />
     </div>
     
     <div class="score-section">
@@ -28,7 +30,7 @@ const handleResetGame = () => {
         <span class="score-value">{{ scoreDisplay }}</span>
       </div>
       <div class="score-item">
-        <span class="score-label">最高分</span>
+        <span class="score-label">最高分 ({{ gameStore.boardSize }}x{{ gameStore.boardSize }})</span>
         <span class="score-value high-score">{{ highScoreDisplay }}</span>
       </div>
       <div v-if="gameStore.combo > 1" class="combo-display">
@@ -152,5 +154,41 @@ const handleResetGame = () => {
 .btn-secondary:hover {
   background: #e0e0e0;
   transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+  .game-header {
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+  }
+  
+  .title-section {
+    width: 100%;
+    text-align: center;
+  }
+  
+  .game-title {
+    font-size: 24px;
+  }
+  
+  .score-section {
+    width: 100%;
+    gap: 20px;
+  }
+  
+  .score-value {
+    font-size: 20px;
+  }
+  
+  .control-section {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .btn {
+    padding: 12px 40px;
+  }
 }
 </style>

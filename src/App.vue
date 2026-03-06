@@ -7,6 +7,7 @@ import { onMounted } from 'vue'
 const gameStore = useGameStore()
 
 onMounted(() => {
+  gameStore.loadBoardSize()
   gameStore.loadHighScore()
 })
 </script>
@@ -39,5 +40,19 @@ body {
   border-radius: 20px;
   padding: 30px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 768px) {
+  body {
+    align-items: flex-start;
+    padding: 10px;
+  }
+  
+  .game-container {
+    padding: 15px;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 100%;
+  }
 }
 </style>

@@ -5,8 +5,9 @@ import type { Position } from '../types/game'
 import GameElement from './GameElement.vue'
 
 const gameStore = useGameStore()
-const CELL_SIZE = 54 // 50px cell + 4px gap
-const HINT_DELAY = 10000 // 10秒后显示提示
+const HINT_DELAY = 10000
+
+const CELL_SIZE = computed(() => gameStore.boardSize === 6 ? 68 : 54)
 
 const hintTimer = ref<number | null>(null)
 
@@ -62,9 +63,9 @@ const isGameOver = computed(() => gameStore.isGameOver)
 
 const animationMatrix = computed(() => {
   const matrix: Record<string, 'matching' | 'falling' | 'swapping' | 'appearing' | null | undefined>[][] = []
-  for (let row = 0; row < 8; row++) {
+  for (let row = 0; row < gameStore.boardSize; row++) {
     const rowArr: Record<string, 'matching' | 'falling' | 'swapping' | 'appearing' | null | undefined>[] = []
-    for (let col = 0; col < 8; col++) {
+    for (let col = 0; col < gameStore.boardSize; col++) {
       const key = `${row}-${col}`
       rowArr.push(gameStore.animatingElements[key])
     }
@@ -95,11 +96,11 @@ const getSwapAnimationStyle = (row: number, col: number): Record<string, string>
   
   let dx = 0, dy = 0
   if (isFrom) {
-    dx = (swap.to.col - swap.from.col) * CELL_SIZE
-    dy = (swap.to.row - swap.from.row) * CELL_SIZE
+    dx = (swap.to.col - swap.from.col) * CELL_SIZE.value
+    dy = (swap.to.row - swap.from.row) * CELL_SIZE.value
   } else if (isTo) {
-    dx = (swap.from.col - swap.to.col) * CELL_SIZE
-    dy = (swap.from.row - swap.to.row) * CELL_SIZE
+    dx = (swap.from.col - swap.to.col) * CELL_SIZE.value
+    dy = (swap.from.row - swap.to.row) * CELL_SIZE.value
   }
   
   return {
@@ -114,7 +115,7 @@ const getFallingAnimationStyle = (row: number, col: number): Record<string, stri
   )
   if (!fallAnim) return {}
   
-  const dropDistance = (fallAnim.to.row - fallAnim.from.row) * CELL_SIZE
+  const dropDistance = (fallAnim.to.row - fallAnim.from.row) * CELL_SIZE.value
   return {
     '--fall-distance': `${dropDistance}px`,
   }
@@ -157,7 +158,7 @@ const handleAnimationEnd = (row: number, col: number) => {
               },
               getAnimationClass(rowIndex, colIndex)
             ]"
-            :style="getAnimationStyle(rowIndex, colIndex)"
+            :style="{ ...getAnimationStyle(rowIndex, colIndex), '--cell-size': `${CELL_SIZE - 4}px` }"
             @click="handleCellClick(rowIndex, colIndex)"
             @animationend="handleAnimationEnd(rowIndex, colIndex)"
           >
@@ -209,8 +210,8 @@ const handleAnimationEnd = (row: number, col: number) => {
 }
 
 .board-cell {
-  width: 50px;
-  height: 50px;
+  width: var(--cell-size, 50px);
+  height: var(--cell-size, 50px);
   display: flex;
   align-items: center;
   justify-content: center;

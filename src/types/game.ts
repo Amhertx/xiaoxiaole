@@ -50,13 +50,20 @@ export interface AnimationTask {
 }
 
 /**
+ * 棋盘尺寸类型
+ */
+export type BoardSize = 6 | 8
+
+/**
  * 游戏状态
  */
 export interface GameState {
-  board: GameElement[][] // 8x8棋盘
+  board: GameElement[][] // 棋盘（尺寸由boardSize决定）
+  boardSize: BoardSize // 棋盘尺寸
   score: number // 当前分数
   combo: number // 连击数
-  highScore: number // 最高分
+  highScore: number // 当前尺寸的最高分
+  highScores: Record<BoardSize, number> // 各尺寸的最高分
   isGameOver: boolean // 游戏是否结束
   isPlaying: boolean // 是否正在游戏
   selectedElement: Position | null // 当前选中的元素
@@ -94,13 +101,28 @@ export const ELEMENT_TYPES: ElementType[] = [
 ]
 
 /**
- * 棋盘大小
+ * 棋盘尺寸配置
  */
-export const BOARD_SIZE = 8
+export const BOARD_SIZES: BoardSize[] = [6, 8]
+
+/**
+ * 默认棋盘尺寸
+ */
+export const DEFAULT_BOARD_SIZE: BoardSize = 8
 
 /**
  * 本地存储键名
  */
 export const STORAGE_KEYS = {
-  HIGH_SCORE: 'match3_high_score',
+  HIGH_SCORE: (size: BoardSize) => `match3_high_score_${size}x${size}`,
+  BOARD_SIZE: 'match3_board_size',
+}
+
+/**
+ * 检测是否为移动设备
+ */
+export function isMobileDevice(): boolean {
+  if (typeof window === 'undefined') return false
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+    || window.innerWidth < 768
 }
