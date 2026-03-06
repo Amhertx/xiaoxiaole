@@ -215,39 +215,8 @@ export const useGameStore = defineStore('game', {
           await this.triggerSpecialsInMatch(specialItems)
         }
 
-        // 元素下落动画
-        const dropResult = dropElements(this.board)
-        
-        // 先设置动画状态，再更新board，避免闪烁
-        const fallPositions: Position[] = dropResult.movedElements.map(m => m.to)
-        this.fallingAnimations = dropResult.movedElements
-        this.setBatchAnimationStates(fallPositions, 'falling')
-        
-        // 然后更新board
-        this.board = dropResult.newBoard
-        
-        // 等待下落动画 (400ms)
-        await this.delay(400)
-
-        // 清除下落动画状态
-        fallPositions.forEach(pos => {
-          this.setAnimationState(pos, null)
-        })
-
-        // 填充新元素
-        const fillResult = fillBoard(this.board)
-        this.board = fillResult.newBoard
-        
-        // 只标记真正新填充的元素
-        this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
-
-        // 等待新元素出现动画 (300ms)
-        await this.delay(300)
-
-        // 清除新元素动画状态
-        fillResult.filledPositions.forEach(pos => {
-          this.setAnimationState(pos, null)
-        })
+        // 执行下落和填充动画
+        await this.runDropAndFillAnimation()
 
         // 检查新的匹配
         matches = findAllMatches(this.board)
@@ -304,9 +273,6 @@ export const useGameStore = defineStore('game', {
         }
       })
       
-      // 标记动画元素
-      this.setBatchAnimationStates(uniquePositions, 'matching')
-      
       // 计算分数
       this.score += calculateScore(uniquePositions.length, this.combo, true)
       
@@ -316,53 +282,13 @@ export const useGameStore = defineStore('game', {
         this.saveHighScore()
       }
       
-      // 等待消除动画 (300ms)
-      await this.delay(300)
-      
-      // 清除动画状态
-      uniquePositions.forEach(pos => {
-        this.setAnimationState(pos, null)
-      })
-      
-      // 移除受影响的元素
-      for (const pos of uniquePositions) {
-        this.board[pos.row][pos.col] = null as any
-      }
+      // 执行统一的动画流程
+      await this.runMatchAnimationFlow(uniquePositions)
       
       // 如果有额外的特殊道具被触发，递归处理
       if (additionalSpecials.length > 0) {
         await this.triggerSpecialsInMatch(additionalSpecials)
       }
-      
-      // 元素下落动画
-      const dropResult = dropElements(this.board)
-      this.board = dropResult.newBoard
-      
-      const fallPositions: Position[] = dropResult.movedElements.map(m => m.to)
-      this.fallingAnimations = dropResult.movedElements
-      this.setBatchAnimationStates(fallPositions, 'falling')
-      
-      // 等待下落动画 (400ms)
-      await this.delay(400)
-      
-      // 清除下落动画状态
-      fallPositions.forEach(pos => {
-        this.setAnimationState(pos, null)
-      })
-      
-      // 填充新元素
-      const fillResult = fillBoard(this.board)
-      this.board = fillResult.newBoard
-      
-      this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
-      
-      // 等待新元素出现动画 (300ms)
-      await this.delay(300)
-      
-      // 清除新元素动画状态
-      fillResult.filledPositions.forEach(pos => {
-        this.setAnimationState(pos, null)
-      })
     },
 
     /**
@@ -381,9 +307,6 @@ export const useGameStore = defineStore('game', {
       const affectedPositions = triggerSpecialEffect(this.board, position)
       
       if (affectedPositions.length > 0) {
-        // 标记动画元素
-        this.setBatchAnimationStates(affectedPositions, 'matching')
-
         // 计算分数
         this.score += calculateScore(affectedPositions.length, this.combo, true)
         
@@ -393,50 +316,8 @@ export const useGameStore = defineStore('game', {
           this.saveHighScore()
         }
 
-        // 等待消除动画 (300ms)
-        await this.delay(300)
-
-        // 清除动画状态
-        affectedPositions.forEach(pos => {
-          this.setAnimationState(pos, null)
-        })
-
-        // 移除受影响的元素
-        for (const pos of affectedPositions) {
-          this.board[pos.row][pos.col] = null as any
-        }
-
-        // 元素下落动画
-        const dropResult = dropElements(this.board)
-        this.board = dropResult.newBoard
-        
-        // 只标记真正移动了的元素
-        const fallPositions: Position[] = dropResult.movedElements.map(m => m.to)
-        this.fallingAnimations = dropResult.movedElements
-        this.setBatchAnimationStates(fallPositions, 'falling')
-
-        // 等待下落动画 (400ms)
-        await this.delay(400)
-
-        // 清除下落动画状态
-        fallPositions.forEach(pos => {
-          this.setAnimationState(pos, null)
-        })
-
-        // 填充新元素
-        const fillResult = fillBoard(this.board)
-        this.board = fillResult.newBoard
-
-        // 只标记真正新填充的元素
-        this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
-
-        // 等待新元素出现动画 (300ms)
-        await this.delay(300)
-
-        // 清除新元素动画状态
-        fillResult.filledPositions.forEach(pos => {
-          this.setAnimationState(pos, null)
-        })
+        // 执行统一的动画流程
+        await this.runMatchAnimationFlow(affectedPositions)
 
         // 处理可能的连锁匹配
         await this.processMatches()
@@ -531,6 +412,52 @@ export const useGameStore = defineStore('game', {
       } catch (error) {
         console.error('保存最高分失败:', error)
       }
+    },
+
+    /**
+     * 执行下落和填充动画（用于processMatches）
+     */
+    async runDropAndFillAnimation() {
+      // 1. 下落动画
+      const dropResult = dropElements(this.board)
+      this.board = dropResult.newBoard
+      const fallPositions: Position[] = dropResult.movedElements.map(m => m.to)
+      this.fallingAnimations = dropResult.movedElements
+      this.setBatchAnimationStates(fallPositions, 'falling')
+      await this.delay(400)
+      fallPositions.forEach(pos => {
+        this.setAnimationState(pos, null)
+      })
+
+      // 2. 填充动画
+      const fillResult = fillBoard(this.board)
+      this.board = fillResult.newBoard
+      this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
+      await this.delay(300)
+      fillResult.filledPositions.forEach(pos => {
+        this.setAnimationState(pos, null)
+      })
+    },
+
+    /**
+     * 执行匹配消除的完整动画流程: 消除 -> 移除 -> 下落 -> 填充
+     * @param positionsToMatch 需要消除的位置数组
+     */
+    async runMatchAnimationFlow(positionsToMatch: Position[]) {
+      // 1. 消除动画
+      this.setBatchAnimationStates(positionsToMatch, 'matching')
+      await this.delay(300)
+      positionsToMatch.forEach(pos => {
+        this.setAnimationState(pos, null)
+      })
+
+      // 2. 移除元素
+      for (const pos of positionsToMatch) {
+        this.board[pos.row][pos.col] = null as any
+      }
+
+      // 3. 执行下落和填充动画
+      await this.runDropAndFillAnimation()
     },
 
     /**
