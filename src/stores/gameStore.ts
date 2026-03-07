@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import type { GameState, GameElement, Position, SpecialType, BoardSize } from '../types/game'
+import { nextTick } from 'vue'
+import type { GameState, GameElement, Position, SpecialType, BoardSize, AnimationState, SpecialEffect } from '../types/game'
 import { STORAGE_KEYS, DEFAULT_BOARD_SIZE, isMobileDevice } from '../types/game'
 import {
   initializeBoard,
@@ -32,12 +33,19 @@ export const useGameStore = defineStore('game', {
     isPlaying: false,
     selectedElement: null,
     isAnimating: false,
-    animatingElements: {} as Record<string, 'matching' | 'falling' | 'swapping' | 'appearing' | null>,
+    animatingElements: {} as Record<string, AnimationState>,
     swapAnimation: null as { from: Position; to: Position } | null,
     fallingAnimations: [] as Array<{ from: Position; to: Position }>,
     lastInteractionTime: Date.now(),
     hintPositions: [],
     isShowingHint: false,
+    // 拖动状态
+    isDragging: false,
+    draggingElement: null,
+    dragOffset: { x: 0, y: 0 },
+    dragTarget: null,
+    // 特殊道具特效
+    specialEffect: null,
   }),
 
   getters: {
@@ -54,14 +62,14 @@ export const useGameStore = defineStore('game', {
       return !!state.animatingElements[key]
     },
 
-    getAnimationState: (state) => (position: Position): 'matching' | 'falling' | 'swapping' | 'appearing' | null | undefined => {
+    getAnimationState: (state) => (position: Position): AnimationState => {
       const key = `${position.row}-${position.col}`
       return state.animatingElements[key]
     },
   },
 
   actions: {
-    setAnimationState(position: Position, state: 'matching' | 'falling' | 'swapping' | 'appearing' | null) {
+    setAnimationState(position: Position, state: Exclude<AnimationState, null>) {
       const key = `${position.row}-${position.col}`
       if (state) {
         this.animatingElements = { ...this.animatingElements, [key]: state }
@@ -75,8 +83,8 @@ export const useGameStore = defineStore('game', {
       this.animatingElements = {}
     },
 
-    setBatchAnimationStates(positions: Position[], state: 'matching' | 'falling' | 'swapping' | 'appearing') {
-      const updates: Record<string, 'matching' | 'falling' | 'swapping' | 'appearing'> = {}
+    setBatchAnimationStates(positions: Position[], state: Exclude<AnimationState, null>) {
+      const updates: Record<string, Exclude<AnimationState, null>> = {}
       positions.forEach(pos => {
         updates[`${pos.row}-${pos.col}`] = state
       })
@@ -145,6 +153,7 @@ export const useGameStore = defineStore('game', {
 
       // 设置交换动画数据
       this.swapAnimation = { from, to }
+      await nextTick()
       this.setAnimationState(from, 'swapping')
       this.setAnimationState(to, 'swapping')
 
@@ -165,6 +174,7 @@ export const useGameStore = defineStore('game', {
       if (matches.length === 0) {
         // 没有匹配，交换回来
         this.swapAnimation = { from: to, to: from }
+        await nextTick()
         this.setAnimationState(from, 'swapping')
         this.setAnimationState(to, 'swapping')
         await this.delay(300)
@@ -217,6 +227,7 @@ export const useGameStore = defineStore('game', {
         })
 
         // 标记匹配元素，开始消除动画
+        await nextTick()
         this.setBatchAnimationStates(matchPositions, 'matching')
 
         // 计算分数
@@ -276,6 +287,8 @@ export const useGameStore = defineStore('game', {
         const affectedPositions = triggerSpecialEffect(this.board, item.position, item.specialType, this.boardSize)
         
         if (affectedPositions.length > 0) {
+          // 触发特效动画
+          this.triggerSpecialEffectAnimation(item.position, item.specialType, affectedPositions)
           allAffectedPositions.push(...affectedPositions)
         }
       }
@@ -314,13 +327,68 @@ export const useGameStore = defineStore('game', {
         this.saveHighScore()
       }
       
+      // 等待特效动画播放
+      await this.delay(200)
+      
       // 执行统一的动画流程
-      await this.runMatchAnimationFlow(uniquePositions)
+      await this.runSpecialMatchAnimationFlow(uniquePositions)
       
       // 如果有额外的特殊道具被触发，递归处理
       if (additionalSpecials.length > 0) {
         await this.triggerSpecialsInMatch(additionalSpecials)
       }
+    },
+
+    /**
+     * 触发特殊道具特效动画
+     */
+    triggerSpecialEffectAnimation(position: Position, type: SpecialType, affectedPositions: Position[]) {
+      if (!type) return
+      this.specialEffect = {
+        type,
+        position,
+        affectedPositions
+      }
+    },
+
+    /**
+     * 清除特殊道具特效
+     */
+    clearSpecialEffect() {
+      this.specialEffect = null
+    },
+
+    /**
+     * 执行特殊道具消除的动画流程（带特效）
+     */
+    async runSpecialMatchAnimationFlow(positionsToMatch: Position[]) {
+      // 1. 设置特效动画状态
+      const effectType = this.specialEffect?.type
+      await nextTick()
+      if (effectType === 'bomb') {
+        this.setBatchAnimationStates(positionsToMatch, 'bomb-explode')
+      } else if (effectType === 'superBomb') {
+        this.setBatchAnimationStates(positionsToMatch, 'superBomb-cross')
+      } else {
+        this.setBatchAnimationStates(positionsToMatch, 'matching')
+      }
+      
+      // 等待特效动画
+      await this.delay(400)
+      
+      // 清除特效状态
+      this.clearSpecialEffect()
+      positionsToMatch.forEach(pos => {
+        this.setAnimationState(pos, null)
+      })
+
+      // 2. 移除元素
+      for (const pos of positionsToMatch) {
+        this.board[pos.row][pos.col] = null as any
+      }
+
+      // 3. 执行下落和填充动画
+      await this.runDropAndFillAnimation()
     },
 
     /**
@@ -339,6 +407,9 @@ export const useGameStore = defineStore('game', {
       const affectedPositions = triggerSpecialEffect(this.board, position, undefined, this.boardSize)
       
       if (affectedPositions.length > 0) {
+        // 触发特效动画
+        this.triggerSpecialEffectAnimation(position, element.special, affectedPositions)
+        
         // 计算分数
         this.score += calculateScore(affectedPositions.length, this.combo, true)
         
@@ -348,8 +419,11 @@ export const useGameStore = defineStore('game', {
           this.saveHighScore()
         }
 
-        // 执行统一的动画流程
-        await this.runMatchAnimationFlow(affectedPositions)
+        // 等待特效动画播放
+        await this.delay(200)
+
+        // 执行特效动画流程
+        await this.runSpecialMatchAnimationFlow(affectedPositions)
 
         // 处理可能的连锁匹配
         await this.processMatches()
@@ -455,18 +529,59 @@ export const useGameStore = defineStore('game', {
      */
     async runDropAndFillAnimation() {
       const dropResult = dropElements(this.board, this.boardSize)
-      this.board = dropResult.newBoard
-      const fallPositions: Position[] = dropResult.movedElements.map(m => m.to)
+      
+      // 如果没有元素移动，直接填充
+      if (dropResult.movedElements.length === 0) {
+        // 填充新元素
+        const fillResult = fillBoard(this.board, this.boardSize)
+        if (fillResult.filledPositions.length === 0) return
+        
+        this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
+        await nextTick()
+        this.board = fillResult.newBoard
+        await this.delay(300)
+        fillResult.filledPositions.forEach(pos => {
+          this.setAnimationState(pos, null)
+        })
+        return
+      }
+      
+      // 设置 fallingAnimations 用于计算下落距离
       this.fallingAnimations = dropResult.movedElements
+      
+      // 先更新 board，让元素移动到新位置
+      this.board = dropResult.newBoard
+      
+      // 等待 board 更新渲染
+      await nextTick()
+      
+      // 然后设置动画状态，触发下落动画
+      const fallPositions = dropResult.movedElements.map(m => m.to)
       this.setBatchAnimationStates(fallPositions, 'falling')
+      
+      // 等待动画完成
       await this.delay(400)
+      
+      // 清除动画状态
       fallPositions.forEach(pos => {
         this.setAnimationState(pos, null)
       })
+      this.fallingAnimations = []
 
+      // 填充新元素
       const fillResult = fillBoard(this.board, this.boardSize)
+      if (fillResult.filledPositions.length === 0) return
+      
+      // 先更新 board
       this.board = fillResult.newBoard
+      
+      // 等待 board 更新渲染
+      await nextTick()
+      
+      // 然后设置动画状态
       this.setBatchAnimationStates(fillResult.filledPositions, 'appearing')
+      
+      // 等待动画完成
       await this.delay(300)
       fillResult.filledPositions.forEach(pos => {
         this.setAnimationState(pos, null)
@@ -479,6 +594,7 @@ export const useGameStore = defineStore('game', {
      */
     async runMatchAnimationFlow(positionsToMatch: Position[]) {
       // 1. 消除动画
+      await nextTick()
       this.setBatchAnimationStates(positionsToMatch, 'matching')
       await this.delay(300)
       positionsToMatch.forEach(pos => {
@@ -522,6 +638,69 @@ export const useGameStore = defineStore('game', {
     clearHint() {
       this.hintPositions = []
       this.isShowingHint = false
+    },
+
+    /**
+     * 开始拖动
+     */
+    startDrag(position: Position) {
+      if (!this.canInteract) return
+      this.isDragging = true
+      this.draggingElement = position
+      this.dragOffset = { x: 0, y: 0 }
+      this.dragTarget = null
+      this.selectedElement = null
+      this.lastInteractionTime = Date.now()
+      this.hintPositions = []
+      this.isShowingHint = false
+    },
+
+    /**
+     * 更新拖动位置
+     */
+    updateDrag(offset: { x: number; y: number }) {
+      if (!this.isDragging || !this.draggingElement) return
+      this.dragOffset = offset
+    },
+
+    /**
+     * 设置拖动目标
+     */
+    setDragTarget(target: Position | null) {
+      this.dragTarget = target
+    },
+
+    /**
+     * 结束拖动
+     */
+    async endDrag(): Promise<boolean> {
+      if (!this.isDragging || !this.draggingElement) {
+        this.resetDragState()
+        return false
+      }
+
+      const from = this.draggingElement
+      const to = this.dragTarget
+
+      // 重置拖动状态
+      this.resetDragState()
+
+      // 如果有有效的目标位置，执行交换
+      if (to && areAdjacent(from, to)) {
+        return await this.trySwap(from, to)
+      }
+
+      return false
+    },
+
+    /**
+     * 重置拖动状态
+     */
+    resetDragState() {
+      this.isDragging = false
+      this.draggingElement = null
+      this.dragOffset = { x: 0, y: 0 }
+      this.dragTarget = null
     },
   },
 })

@@ -55,6 +55,20 @@ export interface AnimationTask {
 export type BoardSize = 6 | 8
 
 /**
+ * 动画状态类型
+ */
+export type AnimationState = 'matching' | 'falling' | 'swapping' | 'appearing' | 'bomb-explode' | 'superBomb-cross' | null
+
+/**
+ * 特殊道具特效信息
+ */
+export interface SpecialEffect {
+  type: 'bomb' | 'superBomb'
+  position: Position
+  affectedPositions: Position[]
+}
+
+/**
  * 游戏状态
  */
 export interface GameState {
@@ -68,12 +82,19 @@ export interface GameState {
   isPlaying: boolean // 是否正在游戏
   selectedElement: Position | null // 当前选中的元素
   isAnimating: boolean // 是否正在播放动画
-  animatingElements: Record<string, 'matching' | 'falling' | 'swapping' | 'appearing' | null> // 动画状态映射
+  animatingElements: Record<string, AnimationState> // 动画状态映射
   swapAnimation: { from: Position; to: Position } | null // 交换动画数据
   fallingAnimations: Array<{ from: Position; to: Position }> // 下落动画数据
   lastInteractionTime: number // 最后一次交互时间戳
   hintPositions: Position[] // 需要提示的方块位置数组
   isShowingHint: boolean // 是否正在显示提示
+  // 拖动状态
+  isDragging: boolean // 是否正在拖动
+  draggingElement: Position | null // 被拖动的方块位置
+  dragOffset: { x: number; y: number } // 拖动偏移量
+  dragTarget: Position | null // 拖动目标位置
+  // 特殊道具特效
+  specialEffect: SpecialEffect | null
 }
 
 /**

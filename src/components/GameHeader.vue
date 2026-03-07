@@ -33,9 +33,6 @@ const handleResetGame = () => {
         <span class="score-label">最高分 ({{ gameStore.boardSize }}x{{ gameStore.boardSize }})</span>
         <span class="score-value high-score">{{ highScoreDisplay }}</span>
       </div>
-      <div v-if="gameStore.combo > 1" class="combo-display">
-        {{ gameStore.combo }}x 连击!
-      </div>
     </div>
     
     <div class="control-section">
@@ -106,18 +103,6 @@ const handleResetGame = () => {
 
 .high-score {
   color: #FF6B6B;
-}
-
-.combo-display {
-  font-size: 18px;
-  font-weight: bold;
-  color: #FF6B6B;
-  animation: pulse 0.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.1); }
 }
 
 .control-section {
