@@ -15,6 +15,10 @@ const handleStartGame = () => {
 const handleResetGame = () => {
   gameStore.resetGame()
 }
+
+const handleTestBoard = () => {
+  gameStore.initTestBoard()
+}
 </script>
 
 <template>
@@ -43,13 +47,20 @@ const handleResetGame = () => {
       >
         开始游戏
       </button>
-      <button 
-        v-else 
-        class="btn btn-secondary"
-        @click="handleResetGame"
-      >
-        重新开始
-      </button>
+      <template v-else>
+        <button 
+          class="btn btn-secondary"
+          @click="handleResetGame"
+        >
+          重新开始
+        </button>
+        <button 
+          class="btn btn-test"
+          @click="handleTestBoard"
+        >
+          测试棋盘
+        </button>
+      </template>
     </div>
   </div>
 </template>
@@ -59,9 +70,11 @@ const handleResetGame = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 20px 30px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
   margin-bottom: 20px;
-  padding-bottom: 20px;
-  border-bottom: 2px solid #e0e0e0;
 }
 
 .title-section {
@@ -109,6 +122,7 @@ const handleResetGame = () => {
   flex: 1;
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
 }
 
 .btn {
@@ -141,12 +155,22 @@ const handleResetGame = () => {
   transform: translateY(-2px);
 }
 
+.btn-test {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+}
+
+.btn-test:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 87, 108, 0.4);
+}
+
 @media (max-width: 768px) {
   .game-header {
     flex-direction: column;
     gap: 15px;
-    margin-bottom: 15px;
-    padding-bottom: 15px;
+    padding: 15px;
+    border-radius: 12px;
   }
   
   .title-section {

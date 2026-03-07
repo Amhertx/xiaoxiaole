@@ -13,7 +13,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="game-container">
+  <div class="app-wrapper">
     <GameHeader />
     <GameBoard />
   </div>
@@ -32,27 +32,20 @@ body {
   min-height: 100vh;
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
+  padding-top: 20px;
 }
 
-.game-container {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 20px;
-  padding: 30px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+.app-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
 }
 
 @media (max-width: 768px) {
   body {
-    align-items: flex-start;
     padding: 10px;
-  }
-  
-  .game-container {
-    padding: 15px;
-    border-radius: 12px;
-    width: 100%;
-    max-width: 100%;
   }
 }
 </style>

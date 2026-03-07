@@ -14,6 +14,7 @@ import {
   hasValidMoves,
   triggerSpecialEffect,
   findValidMoves,
+  createTestBoard,
 } from '../utils/gameLogic'
 
 interface SpecialItemInfo {
@@ -124,6 +125,23 @@ export const useGameStore = defineStore('game', {
 
     initBoard() {
       this.board = initializeBoard(this.boardSize)
+      this.score = 0
+      this.combo = 0
+      this.isGameOver = false
+      this.isPlaying = true
+      this.selectedElement = null
+      this.isAnimating = false
+      this.animatingElements = {}
+      this.lastInteractionTime = Date.now()
+      this.hintPositions = []
+      this.isShowingHint = false
+    },
+
+    /**
+     * 初始化测试棋盘 - 用于测试游戏结束逻辑
+     */
+    initTestBoard() {
+      this.board = createTestBoard(this.boardSize)
       this.score = 0
       this.combo = 0
       this.isGameOver = false

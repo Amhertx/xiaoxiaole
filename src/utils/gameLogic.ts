@@ -496,9 +496,29 @@ export function calculateScore(
 }
 
 /**
+ * 检查棋盘上是否存在特殊道具
+ */
+export function hasSpecialItems(board: GameElement[][], boardSize: BoardSize = 8): boolean {
+  for (let row = 0; row < boardSize; row++) {
+    for (let col = 0; col < boardSize; col++) {
+      const element = board[row]?.[col]
+      if (element?.special) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+/**
  * 检查是否有可行的移动
  */
 export function hasValidMoves(board: GameElement[][], boardSize: BoardSize = 8): boolean {
+  // 如果棋盘上存在特殊道具，玩家可以直接激活，不算游戏结束
+  if (hasSpecialItems(board, boardSize)) {
+    return true
+  }
+  
   for (let row = 0; row < boardSize; row++) {
     for (let col = 0; col < boardSize; col++) {
       if (col < boardSize - 1) {
@@ -583,4 +603,77 @@ export function cloneBoard(board: GameElement[][]): GameElement[][] {
   return board.map(row => 
     row.map(element => ({ ...element, position: { ...element.position } }))
   )
+}
+
+/**
+ * 创建测试棋盘 - 用于测试游戏结束逻辑
+ * 场景：消除一组方块后无法继续触发消除，棋盘上留一个特殊道具
+ */
+export function createTestBoard(boardSize: BoardSize = 8): GameElement[][] {
+  const board: GameElement[][] = []
+  
+  // 创建一个精心设计的棋盘布局
+  // 使用固定的类型分布，确保消除后不会形成新匹配
+  const types: ElementType[] = ['circle', 'square', 'triangle', 'diamond', 'pentagon', 'hexagon']
+  
+  for (let row = 0; row < boardSize; row++) {
+    board[row] = []
+    for (let col = 0; col < boardSize; col++) {
+      // 使用特定的布局模式，避免形成匹配
+      // 模式：交替使用不同类型，但故意留一组可消除的
+      let type: ElementType
+      
+      if (row === 0 && col === 0) {
+        // 左上角放置3个可消除的 circle
+        type = 'circle'
+      } else if (row === 0 && col === 1) {
+        type = 'circle'
+      } else if (row === 0 && col === 2) {
+        type = 'circle'
+      } else if (row === 0 && col === 3) {
+        // 在 (0, 3) 放置一个特殊道具 (bomb)
+        type = 'square'
+      } else {
+        // 其他位置使用交替模式，确保没有匹配
+        // 使用 (row + col) % 6 但跳过会形成匹配的情况
+        const baseIndex = (row * 3 + col) % 6
+        type = types[baseIndex]
+        
+        // 检查是否会形成水平匹配
+        if (col >= 2) {
+          const left1 = board[row][col - 1]?.type
+          const left2 = board[row][col - 2]?.type
+          if (left1 === type && left2 === type) {
+            // 换一个类型
+            type = types[(baseIndex + 1) % 6]
+          }
+        }
+        
+        // 检查是否会形成垂直匹配
+        if (row >= 2) {
+          const up1 = board[row - 1]?.[col]?.type
+          const up2 = board[row - 2]?.[col]?.type
+          if (up1 === type && up2 === type) {
+            // 换一个类型
+            type = types[(baseIndex + 2) % 6]
+          }
+        }
+      }
+      
+      board[row][col] = createElement(row, col, type)
+    }
+  }
+  
+  // 在 (0, 3) 位置放置一个 bomb 特殊道具
+  board[0][3] = {
+    id: generateElementId(),
+    type: 'square',
+    special: 'bomb',
+    position: { row: 0, col: 3 }
+  }
+  
+  // 验证：只有第一行的前3个 circle 可以消除
+  // 消除后下落填充，不会形成新匹配
+  
+  return board
 }

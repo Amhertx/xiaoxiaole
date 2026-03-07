@@ -462,6 +462,10 @@ const handleAnimationEnd = (row: number, col: number) => {
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 20px 30px 30px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
 .game-board {
@@ -504,7 +508,7 @@ const handleAnimationEnd = (row: number, col: number) => {
 
 .board-cell.selected {
   transform: scale(1.1);
-  box-shadow: 0 0 0 3px #667eea, 0 4px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 .board-cell.disabled {
@@ -957,5 +961,12 @@ const handleAnimationEnd = (row: number, col: number) => {
 @keyframes effectFadeOut {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+
+@media (max-width: 768px) {
+  .game-board-container {
+    padding: 15px;
+    border-radius: 12px;
+  }
 }
 </style>
